@@ -1,0 +1,13 @@
+KEYWORD_MAP: dict[str, list[str]] = {
+    "computer vision":  ["computer vision", "object detection", "YOLO", "image recognition"],
+    "nlp":              ["NLP", "natural language processing", "text classification", "sentiment analysis", "deep learning", "AI model", "artificial intelligence"],
+    "llm":              ["LLM", "ChatGPT API", "RAG pipeline", "fine tuning LLM", "deep learning", "AI model", "artificial intelligence"],
+    "agent":            ["AI agent", "agentic AI", "autonomous agent"],
+    "ml":               ["machine learning", "deep learning", "AI model", "artificial intelligence", "deep learning", "AI model", "artificial intelligence"],
+    "mlops":            ["MLOps", "model deployment", "ML pipeline"],
+    "ocr":              ["OCR", "document extraction AI", "document AI", "deep learning", "AI model", "artificial intelligence"],
+    "recommendation":   ["recommendation system", "personalization engine", "deep learning", "AI model", "artificial intelligence"],
+    "generative":       ["stable diffusion", "generative AI", "image generation AI", "deep learning", "AI model", "artificial intelligence"],
+    "speech":           ["speech recognition", "text to speech AI", "voice AI", "deep learning", "AI model", "artificial intelligence"],
+    "data science":     ["data science", "data analysis AI", "predictive analytics"],
+}

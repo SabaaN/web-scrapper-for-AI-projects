@@ -1,0 +1,115 @@
+{
+  "scraped_at": "2026-09-01T06:53:19.516414",
+  "query": "machine learning projects",
+  "total_results": 5,
+  "results": [
+    {
+      "title": "Modern Beverage Can Label Design",
+      "platform": "Freelancer.com",
+      "description": "I need a fresh, modern label created for a new food & beverage product that will be sold in aluminum cans. The goal is to stand out on crowded shelves while staying true to contemporary design trends—clean typography, bold color blocking, and clear hierarchy of information.\n\nYou’ll receive the product name, flavor variants, mandatory nutritional text, and the brand guidelines as soon as we start. From there, I expect an eye-catching front panel, a legally compliant information panel, and artwork",
+      "budget_min": 1500.0,
+      "budget_max": 12500.0,
+      "currency": "INR",
+      "skills": [
+        "Graphic Design",
+        "Logo Design",
+        "Photoshop",
+        "Illustrator",
+        "Branding",
+        "Label Design",
+        "Adobe Illustrator",
+        "Adobe Photoshop"
+      ],
+      "bid_count": 30,
+      "posted_date": "2026-09-01",
+      "url": "https://www.freelancer.com/projects/adobe-illustrator/Modern-Beverage-Can-Label-Design",
+      "source_type": "freelance",
+      "keyword": "AI model"
+    },
+    {
+      "title": "Looking for AI/LLM Engineer",
+      "platform": "Freelancer.com",
+      "description": "Job Title: Senior AI/LLM Engineer – Model Optimization & Domain AI\nJob Summary\n\nWe are seeking an experienced Senior AI/LLM Engineer to design, develop, fine-tune, optimize, and deploy AI models for enterprise use cases across Operations, Revenue Protection, Revenue Boosting, Fraud/Risk, and eKYC.\n\nThe ideal candidate should have practical experience working with open-source LLMs ranging from approximately 3B to 70B parameters, evaluating model quality, adapting models to specific domains, optim",
+      "budget_min": 12500.0,
+      "budget_max": 37500.0,
+      "currency": "INR",
+      "skills": [
+        "Python",
+        "Machine Learning (ML)",
+        "Data Science",
+        "Spark",
+        "Data Analysis",
+        "Model Deployment",
+        "LLM Fine-Tuning"
+      ],
+      "bid_count": 51,
+      "posted_date": "2026-08-27",
+      "url": "https://www.freelancer.com/projects/machine-learning/Customer-Behavior-Prediction",
+      "source_type": "freelance",
+      "keyword": "ML"
+    },
+    {
+      "title": "AI ENGINEER",
+      "platform": "Freelancer.com",
+      "description": "POSITION RESPONSIBILITIES \n• Design, develop, and deploy Al-driven agents for identified business use cases. \n• Develop and implement AI solutions using LLM frameworks and advanced prompt \nengineering techniques. \n• Explore and enable deployment and serving of LLMs in local and cloud environments. \n• Integrate AI agents with enterprise applications and development tools (e.g., IDEs). \n• Implement observability, versioning, monitoring, and auditing mechanisms for AI \nmodel usage. \n• Optimize AI m",
+      "budget_min": 100.0,
+      "budget_max": 1000.0,
+      "currency": "INR",
+      "skills": [
+        "Java",
+        "Python",
+        "Azure",
+        "Machine Learning (ML)",
+        "PostgreSQL",
+        "Software Development",
+        "LangChain",
+        "GitHub CoPilot",
+        "AI Agents",
+        "RAG Pipelines"
+      ],
+      "bid_count": 58,
+      "posted_date": "2026-08-27",
+      "url": "https://www.freelancer.com/projects/python/ENGINEER-40673922",
+      "source_type": "freelance",
+      "keyword": "ML"
+    },
+    {
+      "title": "Android Enhance MRZ/OCR Accuracy for ID Extraction",
+      "platform": "Freelancer.com",
+      "description": "# Freelancer Requirement – MRZ / OCR Accuracy Improvement\n \n## Project Requirement\n \nWe are looking for an experienced **OCR / Computer Vision / Document Recognition developer** to improve the accuracy of our Android application's **MRZ (Machine Readable Zone) / OCR data extraction**.\n \nOur application captures identification documents using the device camera. Currently, the OCR/MRZ extraction is not achieving the required accuracy. We need a freelancer who can improve the recognition accuracy a",
+      "budget_min": 250.0,
+      "budget_max": 750.0,
+      "currency": "USD",
+      "skills": [
+        "Android",
+        "OCR",
+        "Image Processing"
+      ],
+      "bid_count": 58,
+      "posted_date": "2026-08-29",
+      "url": "https://www.freelancer.com/projects/android/Android-Enhance-MRZ-OCR-Accuracy",
+      "source_type": "freelance",
+      "keyword": "ML"
+    },
+    {
+      "title": "LLM Evaluation post training",
+      "platform": "Freelancer.com",
+      "description": "Senior ML Engineer / Advisor / Technical co-founder: Model Post-Training & Alignment\n\nAbout Bentham Research\nGrounding Machine Intelligence in the Humanities\n\nBentham is an applied research lab working at the intersection of AI and the humanities. We build doctorate-authored, peer-reviewed evaluation instruments, training environments, and datasets for frontier AI labs, enterprises, and governments. Our core focus spans ethics, moral reasoning, philosophy, political theory, law, theology, and hi",
+      "budget_min": 36.0,
+      "budget_max": null,
+      "currency": "GBP",
+      "skills": [
+        "Machine Learning (ML)",
+        "AI Model Development",
+        "AI Research",
+        "Large Language Models (LLMs)",
+        "LLM Fine-Tuning"
+      ],
+      "bid_count": 58,
+      "posted_date": "2026-08-31",
+      "url": "https://www.freelancer.com/projects/machine-learning/LLM-Evaluation-post-training",
+      "source_type": "freelance",
+      "keyword": "machine learning"
+    }
+  ]
+}

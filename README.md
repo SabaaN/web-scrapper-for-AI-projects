@@ -28,6 +28,7 @@ It expands broad AI-related queries into platform-specific keywords, filters out
   - `httpx`
   - `python-dotenv`
   - `selectolax`
+  - `openpyxl`
 
 ## Installation
 
@@ -44,7 +45,7 @@ python -m venv .venv
 2. Install dependencies:
 
 ```bash
-pip install httpx python-dotenv selectolax
+pip install httpx python-dotenv selectolax openpyxl
 ```
 
 ## Usage
@@ -80,17 +81,22 @@ python main.py --query "machine learning"
 
 ## Output Files
 
-Each run is saved automatically to the next ordinal JSON file:
+Each run is saved automatically to the next ordinal JSON file and Excel file:
 
 - `results/first.json`
 - `results/second.json`
 - `results/third.json`
+- `excel/first.xlsx`
+- `excel/second.xlsx`
+- `excel/third.xlsx`
 - and so on
 
-If more than 20 result files already exist, the script falls back to names like:
+If more than 20 output files already exist in a folder, the script falls back to names like:
 
 - `results/run_21.json`
 - `results/run_22.json`
+- `excel/run_21.xlsx`
+- `excel/run_22.xlsx`
 
 Each saved file includes:
 
@@ -112,6 +118,7 @@ PPH_BASE_URL=https://www.peopleperhour.com
 TOPTAL_BASE_URL=https://www.toptal.com
 REMOTIVE_API_URL=https://remotive.com/api/remote-jobs
 RESULTS_DIR=results
+EXCEL_DIR=excel
 ```
 
 ## Project Structure
@@ -119,6 +126,7 @@ RESULTS_DIR=results
 - [`main.py`](./main.py) - main scraper application
 - [`alter.py`](./alter.py) - alternate scraper draft / reference version
 - [`results/`](./results) - saved JSON output from runs
+- `excel/` - saved Excel output from runs
 - [`notes.txt`](./notes.txt) - keyword map notes
 
 ## Notes

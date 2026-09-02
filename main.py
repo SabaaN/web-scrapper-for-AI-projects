@@ -17,7 +17,7 @@ import argparse
 import json
 import os
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime
 
 import httpx
@@ -36,6 +36,7 @@ PPH_BASE_URL        = os.getenv("PPH_BASE_URL", "https://www.peopleperhour.com")
 TOPTAL_BASE_URL     = os.getenv("TOPTAL_BASE_URL", "https://www.toptal.com")
 REMOTIVE_API_URL    = os.getenv("REMOTIVE_API_URL", "https://remotive.com/api/remote-jobs")
 RESULTS_DIR         = os.getenv("RESULTS_DIR", "results")
+EXCEL_DIR           = os.getenv("EXCEL_DIR", "excel")
 
 HEADERS = {
     "User-Agent": (
@@ -63,7 +64,26 @@ KEYWORD_MAP: dict[str, list[str]] = {
     "speech":           ["speech recognition", "text to speech AI", "voice AI", "deep learning", "AI model", "artificial intelligence"],
     "data science":     ["data science", "data analysis AI", "predictive analytics"],
 }
-
+PROJECT_TERMS: list[str] = [
+    "project",
+    "development",
+    "developer",
+    "development project",
+    "implementation",
+    "solution",
+    "application",
+    "system",
+    "integration",
+    "build",
+    "building",
+    "develop",
+    "implement",
+    "create",
+    "prototype",
+    "proof of concept",
+    "POC",
+    "MVP",
+]
 # ─── DATA MODEL ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -80,8 +100,34 @@ class ProjectListing:
     url:          str
     source_type:  str           # "freelance" | "remote_contract"
     keyword:      str = ""      # which keyword surfaced this result
+    relevance_score:   float = 0.0
+    preference_rank:   int | None = None
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
+PROJECT_INTENT_SIGNALS: dict[str, int] = {
+    "project": 5,
+    "development": 5,
+    "developer": 4,
+    "develop": 5,
+    "developing": 5,
+    "build": 5,
+    "building": 5,
+    "implement": 5,
+    "implementation": 5,
+    "integrate": 4,
+    "integration": 4,
+    "application": 3,
+    "system": 3,
+    "solution": 3,
+    "prototype": 4,
+    "proof of concept": 5,
+    "poc": 5,
+    "mvp": 5,
+    "model": 3,
+    "pipeline": 4,
+    "api": 2,
+    "engineer": 4,
+}
 
 # ─── RELEVANCE FILTERING ──────────────────────────────────────────────────────
 
@@ -120,52 +166,197 @@ NEGATIVE_SIGNALS: dict[str, int] = {
     "typist": -3, "data entry": -2, "manual testing": -2,
 }
 
+def generate_project_queries(base_keywords: list[str]) -> list[str]:
+    queries = []
 
-def score_relevance(listing: ProjectListing, query: str) -> int:
-    """Return an integer score. >= 3 is usually a solid AI/ML lead."""
-    text = f"{listing.title} {listing.description}".lower()
-    score = 0
+    for keyword in base_keywords:
+        queries.append(keyword)
 
-    # 1. Direct query matches (high weight)
-    for part in query.lower().replace("projects", "").split():
-        if len(part) > 3 and part in text:
-            score += 4
+        for project_term in PROJECT_TERMS:
+            queries.append(f"{keyword} {project_term}")
 
-    # 2. Positive AI/ML signals
-    for term, weight in AI_SIGNALS.items():
-        if term in text:
-            score += weight
+    return list(dict.fromkeys(queries))
 
-    # 3. Negative signals (non-AI freelance noise)
+def score_relevance(listing: ProjectListing, query: str) -> float:
+    """
+    Calculate a 0-100 relevance score for a listing against the user's query.
+
+    Components:
+      - Query/title match
+      - AI domain match
+      - Project intent
+      - Skills match
+      - Negative/non-AI signals
+    """
+
+    title = listing.title.lower()
+    description = listing.description.lower()
+    skills = " ".join(listing.skills).lower()
+
+    full_text = f"{title} {description} {skills}"
+    query_lower = query.lower()
+
+# Identify the user's requested AI domain
+    matched_domains, related_terms = extract_query_concepts(query)
+
+    query_words = [
+        word for word in query_lower.replace("-", " ").split()
+        if len(word) > 2
+        and word not in {"the", "and", "for", "with", "projects", "project"}
+    ]
+
+    if query_words:
+        matched_words = sum(1 for word in query_words if word in full_text)
+        query_match = (matched_words / len(query_words)) * 100
+    else:
+        query_match = 0
+
+# ── 2. AI/domain match ─────────────────────────────────────────
+
+    ai_score = 0
+
+    for term in related_terms:
+        if term in full_text:
+            # Explicitly requested domain gets more importance
+            if term in matched_domains:
+                ai_score += 15
+            else:
+                ai_score += 8
+
+    ai_match = min(ai_score, 100)
+
+    # ── 3. Project intent ────────────────────────────────────────────
+    project_score = 0
+
+    for term, weight in PROJECT_INTENT_SIGNALS.items():
+        if term in full_text:
+            project_score += weight
+
+    project_match = min(project_score * 5, 100)
+
+    # ── 4. Skills match ──────────────────────────────────────────────
+    skills_match = 0
+
+    for word in query_words:
+        if word in skills:
+            skills_match += 20
+
+    skills_match = min(skills_match, 100)
+
+    # ── 5. Title match ───────────────────────────────────────────────
+    title_matches = sum(
+        1 for word in query_words
+        if word in title
+    )
+
+    if query_words:
+        title_match = (title_matches / len(query_words)) * 100
+    else:
+        title_match = 0
+
+    # ── 6. Negative signals ─────────────────────────────────────────
+    negative_penalty = 0
+
     for term, weight in NEGATIVE_SIGNALS.items():
-        if term in text:
-            score += weight  # weight is negative
+        if term in full_text:
+            negative_penalty += abs(weight) * 2
 
-    # 4. Disambiguate weak uses of "detection" and "recognition"
-    if "detection" in text:
-        if not any(x in text for x in ["object", "image", "anomaly", "fraud", "face", "defect", "pattern", "text"]):
-            score -= 3  # generic "detection" (e.g. drug detection) is not CV/ML
+    negative_penalty = min(negative_penalty, 40)
 
-    if "recognition" in text:
-        if not any(x in text for x in ["image", "face", "facial", "speech", "pattern", "object", "text", "character"]):
-            score -= 3  # generic "recognition" is not ML
+    # ── Final weighted score ─────────────────────────────────────────
+    score = (
+        query_match * 0.25
+        + ai_match * 0.30
+        + project_match * 0.15
+        + skills_match * 0.10
+        + title_match * 0.20
+        - negative_penalty
+    )
 
-    return score
+    return round(max(0, min(score, 100)), 2)
 
-
-def filter_by_relevance(
-    listings: list[ProjectListing], query: str, min_score: int = 3
+def rank_preferences(
+    listings: list[ProjectListing],
+    top_n: int = 5,
 ) -> list[ProjectListing]:
-    """Keep only listings that meet the relevance threshold."""
-    kept: list[ProjectListing] = []
+    """
+    Rank the most relevant projects as user preferences.
+
+    The top_n highest-scoring listings receive preference_rank
+    values starting from 1. All remaining listings receive None.
+    """
+
+    ranked = sorted(
+        listings,
+        key=lambda listing: listing.relevance_score,
+        reverse=True,
+    )
+
+    for listing in ranked:
+        listing.preference_rank = None
+
+    for rank, listing in enumerate(ranked[:top_n], start=1):
+        listing.preference_rank = rank
+
+    return ranked
+
+def score_listings(
+    listings: list[ProjectListing],
+    query: str,
+) -> list[ProjectListing]:
+    """
+    Calculate relevance scores for all listings.
+    Does not remove any listings.
+    """
+
     for listing in listings:
-        s = score_relevance(listing, query)
-        if s >= min_score:
-            listing.keyword = f"{listing.keyword} (rel:{s})"  # debug hint
-            kept.append(listing)
-        else:
-            print(f"    [FILTERED] '{listing.title[:45]}...' (score: {s})")
-    return kept
+        listing.relevance_score = score_relevance(
+            listing,
+            query,
+        )
+
+    return listings
+
+def extract_query_concepts(query: str) -> tuple[list[str], list[str]]:
+    """
+    Identify the main AI domains in the user's query and return:
+
+    1. matched_domains:
+       The AI domains explicitly detected in the query.
+
+    2. related_terms:
+       The domain's related technical terms from KEYWORD_MAP.
+    """
+
+    query_lower = query.lower()
+
+    matched_domains = []
+    related_terms = []
+
+    for domain, terms in KEYWORD_MAP.items():
+        # Check the domain itself
+        if domain.lower() in query_lower:
+            matched_domains.append(domain)
+            related_terms.extend(terms)
+
+            continue
+
+        # Also check whether one of the domain's terms
+        # appears explicitly in the query.
+        for term in terms:
+            if term.lower() in query_lower:
+                matched_domains.append(domain)
+                related_terms.extend(terms)
+                break
+
+    # Remove duplicates while preserving order
+    related_terms = list(dict.fromkeys(
+        term.lower() for term in related_terms
+    ))
+
+    matched_domains = list(dict.fromkeys(matched_domains))
+
+    return matched_domains, related_terms
 
 def extract_keywords(query: str) -> list[str]:
     """
@@ -657,6 +848,93 @@ def save_results(listings: list[ProjectListing], query: str) -> str:
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
+def next_excel_filename(excel_dir: str) -> str:
+    """
+    Returns the next ordinal XLSX filename inside excel_dir.
+    Mirrors the JSON naming pattern: first.xlsx, second.xlsx, third.xlsx.
+    """
+    os.makedirs(excel_dir, exist_ok=True)
+    existing = [
+        f for f in os.listdir(excel_dir)
+        if f.endswith(".xlsx")
+    ]
+    n = len(existing)
+    if n < len(ORDINALS):
+        return os.path.join(excel_dir, f"{ORDINALS[n]}.xlsx")
+    return os.path.join(excel_dir, f"run_{n + 1}.xlsx")
+
+
+def save_excel_results(listings: list[ProjectListing]) -> str | None:
+    """
+    Save results to the next ordinal Excel file in EXCEL_DIR.
+    Returns the path it was saved to, or None if openpyxl is not installed.
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        print("\n  [Excel skipped] Install openpyxl to enable .xlsx export:")
+        print("    pip install openpyxl")
+        return None
+
+    path = next_excel_filename(EXCEL_DIR)
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Project Leads"
+
+    headers = [
+        "Title",
+        "Platform",
+        "Description",
+        "Budget Min",
+        "Budget Max",
+        "Currency",
+        "Skills",
+        "Bid Count",
+        "Posted Date",
+        "URL",
+        "Source Type",
+        "Keyword",
+        "Relevance Score",
+        "Preference",
+    ]
+    worksheet.append(headers)
+
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
+
+    for listing in listings:
+        worksheet.append([
+            listing.title,
+            listing.platform,
+            listing.description,
+            listing.budget_min,
+            listing.budget_max,
+            listing.currency,
+            ", ".join(listing.skills),
+            listing.bid_count,
+            listing.posted_date,
+            listing.url,
+            listing.source_type,
+            listing.keyword,
+            listing.relevance_score,
+            listing.preference_rank,
+        ])
+
+    worksheet.freeze_panes = "A2"
+    worksheet.auto_filter.ref = worksheet.dimensions
+
+    for column_cells in worksheet.columns:
+        column_letter = get_column_letter(column_cells[0].column)
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        worksheet.column_dimensions[column_letter].width = min(max(max_length + 2, 12), 60)
+
+    workbook.save(path)
+    print(f"  Saved {len(listings)} Excel results -> {path}")
+    return path
+
+
 def run(query: str) -> list[ProjectListing]:
     """
     Orchestrate all scrapers for a given query.
@@ -664,6 +942,7 @@ def run(query: str) -> list[ProjectListing]:
     Returns the full sorted, deduplicated list of ProjectListings.
     """
     keywords = extract_keywords(query)
+    keywords = generate_project_queries(keywords)
 
     print(f"\n  Query:    \"{query}\"")
     print(f"  Keywords: {', '.join(keywords[:5])}" + (f" (+{len(keywords)-5} more)" if len(keywords) > 5 else ""))
@@ -707,15 +986,21 @@ def run(query: str) -> list[ProjectListing]:
             time.sleep(REQUEST_DELAY)
 
     # Post-processing
-    unique   = deduplicate(all_listings)
-    print(f"\n  Pre-filter:  {len(unique)} unique listings")
-    relevant = filter_by_relevance(unique, query, min_score=3)
-    print(f"  Post-filter: {len(relevant)} relevant listings")
-    sorted_  = sort_listings(relevant)
+    unique = deduplicate(all_listings)
+
+    print(f"\n  Pre-filter: {len(unique)} unique listings")
+
+    scored = score_listings(unique, query)
+
+    sorted_ = rank_preferences(scored, top_n=5)
+
+    sorted_ = sort_listings(sorted_)
+
+    print(f"  Scored: {len(sorted_)} listings")
 
     print_results(sorted_)
     save_results(sorted_, query)
-
+    save_excel_results(sorted_)
     return sorted_
 
 

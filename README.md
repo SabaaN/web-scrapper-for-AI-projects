@@ -9,7 +9,7 @@ The current active scraper in [`main.py`](./main.py) searches:
 - Toptal
 - Remotive
 
-It expands broad AI-related queries into platform-specific keywords, filters out low-relevance results, sorts the listings, prints them to the terminal, and saves the results to JSON files in `results/`.
+It expands broad AI-related queries into platform-specific project keywords, filters out low-relevance results, sorts the listings by relevance score, prints them to the terminal, and saves the results to JSON and Excel files.
 
 ## Features
 
@@ -17,8 +17,10 @@ It expands broad AI-related queries into platform-specific keywords, filters out
 - Scraping from multiple sources in one run
 - Relevance filtering to reduce non-AI noise
 - Duplicate removal by URL
-- Sorting by competition and budget
-- Automatic JSON export of each run
+- `relevance_score` calculation for every kept listing
+- Top 5 `preference_rank` labels for the strongest matches
+- Sorting by `relevance_score` descending, with bid count and budget used as tie-breakers
+- Automatic JSON and Excel export of each run
 
 ## Requirements
 
@@ -72,12 +74,13 @@ python main.py --query "machine learning"
 
 ## How It Works
 
-1. Your query is expanded into a set of related search terms.
+1. Your query is expanded into related AI terms and project-intent searches.
 2. Each source is searched with those terms.
 3. Results are deduplicated by URL.
 4. Listings are scored for AI relevance and low-signal non-AI jobs are removed.
-5. Remaining listings are sorted and printed.
-6. The final results are saved as JSON in `results/`.
+5. The top 5 matches are marked with `preference_rank`.
+6. Remaining listings are sorted by `relevance_score` from highest to lowest.
+7. The final results are saved as JSON in `results/` and Excel in `excel/`.
 
 ## Output Files
 
@@ -104,6 +107,8 @@ Each saved file includes:
 - `query`
 - `total_results`
 - `results`
+
+Each result includes fields such as title, platform, description, budget, skills, bid count, posted date, URL, source type, keyword, `relevance_score`, and `preference_rank`.
 
 ## Configuration
 

@@ -174,7 +174,6 @@ NEGATIVE_SIGNALS: dict[str, int] = {
 # (has speech recognition in skills, borderline but relevant to us)
 MIN_RELEVANCE_SCORE = 3
 
-
 def extract_query_concepts(query: str) -> tuple[list[str], list[str]]:
     """
     Identify the main AI domains in the user's query and return:

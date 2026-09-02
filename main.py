@@ -166,6 +166,89 @@ NEGATIVE_SIGNALS: dict[str, int] = {
     "typist": -3, "data entry": -2, "manual testing": -2,
 }
 
+# Minimum score a listing must achieve to appear in results.
+# Looking at the data: genuine AI projects score 15+, junk scores 0-14.
+# "Automotive PR" → 0, "Classic Logo" → 0, "Video Editing" → 0
+# "AI Voice Receptionist" → 39, "Chatbot NLP" → 39, "RAG platform" → 27
+# Set at 15 — catches edge cases like "Offline Mobile Call Translator"
+# (has speech recognition in skills, borderline but relevant to us)
+MIN_RELEVANCE_SCORE = 3
+
+
+def extract_query_concepts(query: str) -> tuple[list[str], list[str]]:
+    """
+    Identify the main AI domains in the user's query and return:
+
+    1. matched_domains:
+       The AI domains explicitly detected in the query.
+
+    2. related_terms:
+       The domain's related technical terms from KEYWORD_MAP.
+    """
+
+    query_lower = query.lower()
+
+    matched_domains = []
+    related_terms = []
+
+    for domain, terms in KEYWORD_MAP.items():
+        # Check the domain itself
+        if domain.lower() in query_lower:
+            matched_domains.append(domain)
+            related_terms.extend(terms)
+
+            continue
+
+        # Also check whether one of the domain's terms
+        # appears explicitly in the query.
+        for term in terms:
+            if term.lower() in query_lower:
+                matched_domains.append(domain)
+                related_terms.extend(terms)
+                break
+
+    # Remove duplicates while preserving order
+    related_terms = list(dict.fromkeys(
+        term.lower() for term in related_terms
+    ))
+
+    matched_domains = list(dict.fromkeys(matched_domains))
+
+    return matched_domains, related_terms
+
+def extract_keywords(query: str) -> list[str]:
+    """
+    Map a plain-English user query to a deduplicated list of search keywords.
+    Falls back to the raw query if nothing in the map matches.
+    """
+    query_lower = query.lower()
+    matched: list[str] = []
+
+    for category, keywords in KEYWORD_MAP.items():
+        if category in query_lower or any(kw.lower() in query_lower for kw in keywords):
+            matched.extend(keywords)
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique = []
+    for kw in matched:
+        if kw not in seen:
+            seen.add(kw)
+            unique.append(kw)
+
+    return unique if unique else [query]
+
+
+def deduplicate(listings: list[ProjectListing]) -> list[ProjectListing]:
+    """Remove duplicate listings by URL."""
+    seen: set[str] = set()
+    unique = []
+    for listing in listings:
+        if listing.url not in seen:
+            seen.add(listing.url)
+            unique.append(listing)
+    return unique
+
 def generate_project_queries(base_keywords: list[str]) -> list[str]:
     queries = []
 
@@ -305,103 +388,33 @@ def score_listings(
     query: str,
 ) -> list[ProjectListing]:
     """
-    Calculate relevance scores for all listings.
-    Does not remove any listings.
+    Score all listings and drop anything below MIN_RELEVANCE_SCORE.
+    This is the single filtering gate — everything that passes has
+    a genuine AI/ML signal.
     """
-
+    scored = []
     for listing in listings:
-        listing.relevance_score = score_relevance(
-            listing,
-            query,
-        )
+        listing.relevance_score = score_relevance(listing, query)
+        if listing.relevance_score >= MIN_RELEVANCE_SCORE:
+            scored.append(listing)
 
-    return listings
+    dropped = len(listings) - len(scored)
+    if dropped:
+        print(f"  Filtered out {dropped} irrelevant listings (score < {MIN_RELEVANCE_SCORE})")
 
-def extract_query_concepts(query: str) -> tuple[list[str], list[str]]:
-    """
-    Identify the main AI domains in the user's query and return:
-
-    1. matched_domains:
-       The AI domains explicitly detected in the query.
-
-    2. related_terms:
-       The domain's related technical terms from KEYWORD_MAP.
-    """
-
-    query_lower = query.lower()
-
-    matched_domains = []
-    related_terms = []
-
-    for domain, terms in KEYWORD_MAP.items():
-        # Check the domain itself
-        if domain.lower() in query_lower:
-            matched_domains.append(domain)
-            related_terms.extend(terms)
-
-            continue
-
-        # Also check whether one of the domain's terms
-        # appears explicitly in the query.
-        for term in terms:
-            if term.lower() in query_lower:
-                matched_domains.append(domain)
-                related_terms.extend(terms)
-                break
-
-    # Remove duplicates while preserving order
-    related_terms = list(dict.fromkeys(
-        term.lower() for term in related_terms
-    ))
-
-    matched_domains = list(dict.fromkeys(matched_domains))
-
-    return matched_domains, related_terms
-
-def extract_keywords(query: str) -> list[str]:
-    """
-    Map a plain-English user query to a deduplicated list of search keywords.
-    Falls back to the raw query if nothing in the map matches.
-    """
-    query_lower = query.lower()
-    matched: list[str] = []
-
-    for category, keywords in KEYWORD_MAP.items():
-        if category in query_lower or any(kw.lower() in query_lower for kw in keywords):
-            matched.extend(keywords)
-
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique = []
-    for kw in matched:
-        if kw not in seen:
-            seen.add(kw)
-            unique.append(kw)
-
-    return unique if unique else [query]
-
-
-def deduplicate(listings: list[ProjectListing]) -> list[ProjectListing]:
-    """Remove duplicate listings by URL."""
-    seen: set[str] = set()
-    unique = []
-    for listing in listings:
-        if listing.url not in seen:
-            seen.add(listing.url)
-            unique.append(listing)
-    return unique
-
+    return scored
 
 def sort_listings(listings: list[ProjectListing]) -> list[ProjectListing]:
     """
     Sort by:
-      1. bid_count ascending (fewer bids = better opportunity)
-      2. budget_max descending (higher budget first)
-    Listings without bid counts (non-Freelancer sources) go after Freelancer ones.
+      1. relevance_score descending (most relevant first)
+      2. bid_count ascending (fewer bids = better opportunity)
+      3. budget_max descending (higher budget first)
     """
     return sorted(
         listings,
         key=lambda x: (
+            -x.relevance_score,
             x.bid_count if x.bid_count is not None else 999,
             -(x.budget_max or 0),
         ),
@@ -681,57 +694,59 @@ def scrape_toptal(client: httpx.Client, keyword: str) -> list[ProjectListing]:
 def scrape_remotive(client: httpx.Client, keyword: str) -> list[ProjectListing]:
     """
     Calls Remotive's official, free, public REST API.
-    Documented at: https://remotive.com/api
-    No key, no rate limit documented — just be polite with delays.
+    Searches across AI-relevant categories only.
+    The scoring filter in score_listings handles final relevance gating.
     """
-    params = {
-        "search":   keyword,
-        "category": "software-dev",  # most AI/ML roles land here
-        "limit":    RESULTS_PER_KEYWORD,
-    }
-
-    resp = get(client, REMOTIVE_API_URL, params=params, headers=HEADERS)
-    if not resp:
-        return []
-
-    try:
-        data = resp.json()
-    except Exception:
-        print("    [Remotive] Failed to parse JSON response")
-        return []
-
-    jobs = data.get("jobs", [])
+    AI_CATEGORIES = ["machine-learning", "data", "software-dev"]
+    seen_ids: set[str] = set()
     results: list[ProjectListing] = []
 
-    for job in jobs:
-        # Remotive returns salary as a string like "$80k-$120k" or ""
-        salary_str = job.get("salary", "") or ""
-        budget_min, budget_max, currency = parse_budget_string(salary_str)
+    for category in AI_CATEGORIES:
+        params = {
+            "search":   keyword,
+            "category": category,
+        }
+        resp = get(client, REMOTIVE_API_URL, params=params, headers=HEADERS)
+        if not resp:
+            continue
 
-        # Tags come as a list of strings
-        tags = job.get("tags") or []
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",")]
+        try:
+            data = resp.json()
+        except Exception:
+            print("    [Remotive] Failed to parse JSON response")
+            continue
 
-        # Strip HTML from description if present
-        desc_raw = job.get("description", "") or ""
-        desc_tree = HTMLParser(desc_raw)
-        description = desc_tree.text(strip=True)[:500] if desc_raw else ""
+        for job in data.get("jobs", []):
+            job_id = str(job.get("id", ""))
+            if job_id in seen_ids:
+                continue
+            seen_ids.add(job_id)
 
-        results.append(ProjectListing(
-            title       = (job.get("title") or "").strip(),
-            platform    = "Remotive",
-            description = description,
-            budget_min  = budget_min,
-            budget_max  = budget_max,
-            currency    = currency or "USD",
-            skills      = tags,
-            bid_count   = None,
-            posted_date = job.get("publication_date"),
-            url         = job.get("url") or "https://remotive.com",
-            source_type = "remote_contract",
-            keyword     = keyword,
-        ))
+            salary_str = job.get("salary", "") or ""
+            budget_min, budget_max, currency = parse_budget_string(salary_str)
+
+            tags = job.get("tags") or []
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",")]
+
+            desc_raw = job.get("description", "") or ""
+            desc_tree = HTMLParser(desc_raw)
+            description = desc_tree.text(strip=True)[:500] if desc_raw else ""
+
+            results.append(ProjectListing(
+                title       = (job.get("title") or "").strip(),
+                platform    = "Remotive",
+                description = description,
+                budget_min  = budget_min,
+                budget_max  = budget_max,
+                currency    = currency or "USD",
+                skills      = tags,
+                bid_count   = None,
+                posted_date = job.get("publication_date"),
+                url         = job.get("url") or "https://remotive.com",
+                source_type = "remote_contract",
+                keyword     = keyword,
+            ))
 
     return results
 
@@ -992,9 +1007,8 @@ def run(query: str) -> list[ProjectListing]:
 
     scored = score_listings(unique, query)
 
-    sorted_ = rank_preferences(scored, top_n=5)
-
-    sorted_ = sort_listings(sorted_)
+    rank_preferences(scored, top_n=5)
+    sorted_ = sort_listings(scored)
 
     print(f"  Scored: {len(sorted_)} listings")
 

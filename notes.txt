@@ -1,1 +1,0 @@
-add more platforms, right now we are only fetching from PeoplePerHour and freelancer.com. 

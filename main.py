@@ -463,6 +463,151 @@ def parse_budget_string(text: str) -> tuple[float | None, float | None, str | No
         return nums[0], nums[0], currency
     return min(nums), max(nums), currency
 
+# ─── SCRAPER: REMOTEOK ────────────────────────────────────────────────────────
+
+def scrape_remoteok(client: httpx.Client, keyword: str) -> list[ProjectListing]:
+    """
+    Calls RemoteOK's public JSON feed. 
+    Returns all active listings; filters them locally via keyword.
+    """
+    url = "https://remoteok.com/api"
+    resp = get(client, url, headers=HEADERS)
+    if not resp:
+        return []
+
+    try:
+        data = resp.json()
+    except Exception:
+        print("    [RemoteOK] Failed to parse JSON response")
+        return []
+
+    # RemoteOK metadata sits in index 0; true job listings start at index 1
+    jobs = data[1:] if isinstance(data, list) and len(data) > 1 else []
+    results: list[ProjectListing] = []
+
+    keyword_lower = keyword.lower()
+    for job in jobs:
+        title = job.get("position", "").strip()
+        tags = job.get("tags") or []
+        desc_raw = job.get("description", "") or ""
+
+        # Quick keyword filter
+        full_text = f"{title} {' '.join(tags)} {desc_raw}".lower()
+        if keyword_lower not in full_text:
+            continue
+
+        desc_tree = HTMLParser(desc_raw)
+        description = desc_tree.text(strip=True)[:500] if desc_raw else ""
+
+        results.append(ProjectListing(
+            title       = title,
+            platform    = "RemoteOK",
+            description = description,
+            budget_min  = float(job.get("salary_min")) if job.get("salary_min") else None,
+            budget_max  = float(job.get("salary_max")) if job.get("salary_max") else None,
+            currency    = "USD",
+            skills      = tags,
+            bid_count   = None,
+            posted_date = job.get("date"),
+            url         = job.get("url") or "https://remoteok.com",
+            source_type = "remote_contract",
+            keyword     = keyword,
+        ))
+
+    return results
+
+
+# ─── SCRAPER: HIMALAYAS ───────────────────────────────────────────────────────
+
+def scrape_himalayas(client: httpx.Client, keyword: str) -> list[ProjectListing]:
+    """
+    Calls the Himalayas Remote Jobs Search API.
+    """
+    url = "https://himalayas.app/jobs/api/search"
+    params = {"q": keyword}
+
+    resp = get(client, url, params=params, headers=HEADERS)
+    if not resp:
+        return []
+
+    try:
+        data = resp.json()
+    except Exception:
+        print("    [Himalayas] Failed to parse JSON response")
+        return []
+
+    results: list[ProjectListing] = []
+    for job in data.get("jobs", []):
+        salary_min = job.get("minSalary")
+        salary_max = job.get("maxSalary")
+
+        results.append(ProjectListing(
+            title       = (job.get("title") or "").strip(),
+            platform    = "Himalayas",
+            description = (job.get("excerpt") or "")[:500].strip(),
+            budget_min  = float(salary_min) if salary_min else None,
+            budget_max  = float(salary_max) if salary_max else None,
+            currency    = job.get("currency") or "USD",
+            skills      = job.get("categories") or [],
+            bid_count   = None,
+            posted_date = job.get("pubDate"),
+            url         = job.get("applicationLink") or "https://himalayas.app",
+            source_type = "remote_contract",
+            keyword     = keyword,
+        ))
+
+    return results
+
+
+# ─── SCRAPER: ARBEITNOW ───────────────────────────────────────────────────────
+
+def scrape_arbeitnow(client: httpx.Client, keyword: str) -> list[ProjectListing]:
+    """
+    Calls Arbeitnow's public job board API.
+    """
+    url = "https://www.arbeitnow.com/api/job-board-api"
+    resp = get(client, url, headers=HEADERS)
+    if not resp:
+        return []
+
+    try:
+        data = resp.json()
+    except Exception:
+        print("    [Arbeitnow] Failed to parse JSON response")
+        return []
+
+    results: list[ProjectListing] = []
+    keyword_lower = keyword.lower()
+
+    for job in data.get("data", []):
+        title = (job.get("title") or "").strip()
+        tags = job.get("tags") or []
+        desc_raw = job.get("description", "") or ""
+
+        # Keyword matching
+        full_text = f"{title} {' '.join(tags)} {desc_raw}".lower()
+        if keyword_lower not in full_text:
+            continue
+
+        desc_tree = HTMLParser(desc_raw)
+        description = desc_tree.text(strip=True)[:500] if desc_raw else ""
+
+        results.append(ProjectListing(
+            title       = title,
+            platform    = "Arbeitnow",
+            description = description,
+            budget_min  = None,
+            budget_max  = None,
+            currency    = "EUR",
+            skills      = tags,
+            bid_count   = None,
+            posted_date = str(job.get("created_at")),
+            url         = job.get("url") or "https://www.arbeitnow.com",
+            source_type = "remote_contract",
+            keyword     = keyword,
+        ))
+
+    return results
 
 # ─── SCRAPER: FREELANCER.COM ──────────────────────────────────────────────────
 
@@ -522,266 +667,6 @@ def scrape_freelancer(client: httpx.Client, keyword: str) -> list[ProjectListing
         ))
 
     return results
-
-
-# ─── SCRAPER: PEOPLEPERHOUR ───────────────────────────────────────────────────
-
-def scrape_peopleperhour(client: httpx.Client, keyword: str) -> list[ProjectListing]:
-    """
-    Scrapes PeoplePerHour project listing pages.
-
-    PeoplePerHour currently renders project cards as:
-        li.list__item
-            div.item
-                h6.item__title > a.item__url
-                p.item__desc
-                div.card__price
-                div.card__footer-left
-
-    Uses selectolax for fast HTML parsing.
-    """
-
-    url = f"{PPH_BASE_URL}/freelance-jobs"
-    params = {
-        "keyword": keyword,
-        "type": "projects",
-    }
-
-    resp = get(client, url, params=params, headers=HEADERS)
-
-    if not resp:
-        return []
-
-    # Save HTML for debugging
-    safe_keyword = keyword.replace(" ", "_").replace("/", "_")
-    with open(
-        f"pph_debug_{safe_keyword}.html",
-        "w",
-        encoding="utf-8"
-    ) as f:
-        f.write(resp.text)
-
-    tree = HTMLParser(resp.text)
-
-    results: list[ProjectListing] = []
-
-    # ---------------------------------------------------------
-    # PeoplePerHour project cards
-    # ---------------------------------------------------------
-
-    cards = tree.css("li.list__item")
-
-    print(f"    [PPH] Found {len(cards)} project cards")
-
-    for card in cards:
-
-        # -----------------------------------------------------
-        # TITLE + URL
-        # -----------------------------------------------------
-
-        title_node = card.css_first("h6.item__title a.item__url")
-
-        if not title_node:
-            continue
-
-        title = title_node.text(strip=True)
-
-        href = title_node.attributes.get("href", "")
-
-        if not href:
-            continue
-
-        if href.startswith("http"):
-            link = href
-        else:
-            link = f"{PPH_BASE_URL}{href}"
-
-        # -----------------------------------------------------
-        # DESCRIPTION
-        # -----------------------------------------------------
-
-        desc_node = card.css_first("p.item__desc")
-
-        description = (
-            desc_node.text(strip=True)[:400]
-            if desc_node
-            else ""
-        )
-
-        # -----------------------------------------------------
-        # BUDGET
-        # -----------------------------------------------------
-
-        budget_node = card.css_first("div.card__price")
-
-        budget_text = (
-            budget_node.text(strip=True)
-            if budget_node
-            else ""
-        )
-
-        budget_min, budget_max, currency = parse_budget_string(
-            budget_text
-        )
-
-        # -----------------------------------------------------
-        # POSTED DATE / PROPOSALS / LOCATION
-        # -----------------------------------------------------
-
-        footer = card.css_first("div.card__footer-left")
-
-        posted = None
-        bid_count = None
-
-        if footer:
-
-            footer_spans = footer.css("span")
-
-            for span in footer_spans:
-
-                text = span.text(strip=True)
-
-                if not text:
-                    continue
-
-                # First span is normally the posted time
-                if posted is None:
-                    posted = text
-                    continue
-
-                # Look for proposal count
-                if "proposal" in text.lower():
-
-                    match = re.search(r"(\d+)", text)
-
-                    if match:
-                        bid_count = int(match.group(1))
-
-        # -----------------------------------------------------
-        # SKILLS
-        # -----------------------------------------------------
-
-        skills = []
-
-        # Try common tag/skill selectors
-        for selector in [
-            ".skill-tag",
-            ".job-tag",
-            ".tag",
-            ".etiquettes span",
-        ]:
-            for node in card.css(selector):
-                text = node.text(strip=True)
-
-                if text and text not in skills:
-                    skills.append(text)
-
-        # -----------------------------------------------------
-        # CREATE LISTING
-        # -----------------------------------------------------
-
-        results.append(
-            ProjectListing(
-                title=title,
-                platform="PeoplePerHour",
-                description=description,
-                budget_min=budget_min,
-                budget_max=budget_max,
-                currency=currency,
-                skills=skills,
-                bid_count=bid_count,
-                posted_date=posted,
-                url=link,
-                source_type="freelance",
-                keyword=keyword,
-            )
-        )
-
-    return results
-
-# ─── SCRAPER: TOPTAL ──────────────────────────────────────────────────────────
-
-def scrape_toptal(client: httpx.Client, keyword: str) -> list[ProjectListing]:
-    """
-    Scrapes Toptal's public job listings page.
-    Toptal mostly lists longer-term engagements and full-time remote roles
-    from vetted companies — good signal for B2B contract opportunities.
-    """
-    # Toptal's jobs page with search query
-    url = f"{TOPTAL_BASE_URL}/jobs"
-    params = {"q": keyword}
-
-    resp = get(client, url, params=params, headers=HEADERS)
-    if not resp:
-        return []
-
-    tree = HTMLParser(resp.text)
-    results: list[ProjectListing] = []
-
-    # Toptal job cards
-    cards = (
-        tree.css("li.job-listing") or
-        tree.css("[data-test='job-card']") or
-        tree.css(".job-item") or
-        tree.css("article")
-    )
-
-    for card in cards:
-        title_node = (
-            card.css_first("h2 a") or
-            card.css_first("h3 a") or
-            card.css_first(".job-title a") or
-            card.css_first("a")
-        )
-        if not title_node:
-            continue
-
-        title = title_node.text(strip=True)
-        if not title:
-            continue
-
-        href = title_node.attrs.get("href", "")
-        link = href if href.startswith("http") else f"{TOPTAL_BASE_URL}{href}"
-
-        desc_node = (
-            card.css_first(".job-description") or
-            card.css_first("p") or
-            card.css_first(".description")
-        )
-        description = desc_node.text(strip=True)[:400] if desc_node else ""
-
-        # Toptal typically shows compensation as hourly rate
-        comp_node = (
-            card.css_first(".compensation") or
-            card.css_first(".salary") or
-            card.css_first("[data-test='compensation']")
-        )
-        comp_text = comp_node.text(strip=True) if comp_node else ""
-        budget_min, budget_max, currency = parse_budget_string(comp_text)
-
-        skill_nodes = card.css(".skill") or card.css(".tag") or card.css(".badge")
-        skills = [s.text(strip=True) for s in skill_nodes if s.text(strip=True)]
-
-        date_node = card.css_first("time") or card.css_first(".date")
-        posted = date_node.attrs.get("datetime") or (date_node.text(strip=True) if date_node else None)
-
-        results.append(ProjectListing(
-            title       = title,
-            platform    = "Toptal",
-            description = description,
-            budget_min  = budget_min,
-            budget_max  = budget_max,
-            currency    = currency or "USD",
-            skills      = skills,
-            bid_count   = None,
-            posted_date = posted,
-            url         = link,
-            source_type = "freelance",
-            keyword     = keyword,
-        ))
-
-    return results
-
 
 # ─── SCRAPER: REMOTIVE ────────────────────────────────────────────────────────
 
@@ -1063,36 +948,36 @@ def run(query: str) -> list[ProjectListing]:
     with httpx.Client(follow_redirects=True) as client:
 
         # ── Freelancer.com ──────────────────────────────────────────────────
-        print("  [1/4] Freelancer.com ...")
+        print("  [1/2] Freelancer.com ...")
         for kw in keywords[:4]:  # cap at 4 keywords to avoid hammering
             results = scrape_freelancer(client, kw)
             print(f"        → '{kw}': {len(results)} projects")
             all_listings.extend(results)
             time.sleep(REQUEST_DELAY)
 
-        # ── PeoplePerHour ───────────────────────────────────────────────────
-        print("\n  [2/4] PeoplePerHour ...")
-        for kw in keywords[:3]:
-            results = scrape_peopleperhour(client, kw)
-            print(f"        → '{kw}': {len(results)} projects")
-            all_listings.extend(results)
-            time.sleep(REQUEST_DELAY)
-
-        # ── Toptal ──────────────────────────────────────────────────────────
-        print("\n  [3/4] Toptal ...")
-        for kw in keywords[:3]:
-            results = scrape_toptal(client, kw)
-            print(f"        → '{kw}': {len(results)} projects")
-            all_listings.extend(results)
-            time.sleep(REQUEST_DELAY)
-
         # ── Remotive ────────────────────────────────────────────────────────
-        print("\n  [4/4] Remotive ...")
+        print("\n  [2/2] Remotive ...")
         for kw in keywords[:4]:
             results = scrape_remotive(client, kw)
             print(f"        → '{kw}': {len(results)} projects")
             all_listings.extend(results)
             time.sleep(REQUEST_DELAY)
+
+        print("\n  [2/2] Himalyas ...")
+        for kw in keywords[:4]:
+            results = scrape_himalayas(client, kw)
+            print(f"        → '{kw}': {len(results)} projects")
+            all_listings.extend(results)
+            time.sleep(REQUEST_DELAY)
+
+        print("\n  [2/2] arbietnow ...")
+        for kw in keywords[:4]:
+            results = scrape_arbeitnow(client, kw)
+            print(f"        → '{kw}': {len(results)} projects")
+            all_listings.extend(results)
+            time.sleep(REQUEST_DELAY)
+
+        
 
     # Post-processing
     unique = deduplicate(all_listings)

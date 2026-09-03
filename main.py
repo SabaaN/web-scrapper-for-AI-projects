@@ -19,6 +19,7 @@ import os
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
+import re
 
 import httpx
 from dotenv import load_dotenv
@@ -436,6 +437,32 @@ def get(client: httpx.Client, url: str, **kwargs) -> httpx.Response | None:
         print(f"    [Request error] {url} — {e}")
         return None
 
+def parse_budget_string(text: str) -> tuple[float | None, float | None, str | None]:
+    """
+    Parse budget strings like '£50', '$100-$200', '€500+' into
+    (min, max, currency_symbol).
+    """
+    import re
+    if not text:
+        return None, None, None
+
+    symbol_map = {"£": "GBP", "$": "USD", "€": "EUR"}
+    currency = None
+    for sym, code in symbol_map.items():
+        if sym in text:
+            currency = code
+            break
+
+    # Extract all numbers from the string
+    numbers = re.findall(r"[\d,]+", text.replace(",", ""))
+    nums = [float(n) for n in numbers if n]
+
+    if not nums:
+        return None, None, currency
+    if len(nums) == 1:
+        return nums[0], nums[0], currency
+    return min(nums), max(nums), currency
+
 
 # ─── SCRAPER: FREELANCER.COM ──────────────────────────────────────────────────
 
@@ -502,107 +529,175 @@ def scrape_freelancer(client: httpx.Client, keyword: str) -> list[ProjectListing
 def scrape_peopleperhour(client: httpx.Client, keyword: str) -> list[ProjectListing]:
     """
     Scrapes PeoplePerHour project listing pages.
-    Uses selectolax for fast CSS-selector-based HTML parsing.
+
+    PeoplePerHour currently renders project cards as:
+        li.list__item
+            div.item
+                h6.item__title > a.item__url
+                p.item__desc
+                div.card__price
+                div.card__footer-left
+
+    Uses selectolax for fast HTML parsing.
     """
+
     url = f"{PPH_BASE_URL}/freelance-jobs"
-    params = {"keyword": keyword, "type": "projects"}
+    params = {
+        "keyword": keyword,
+        "type": "projects",
+    }
 
     resp = get(client, url, params=params, headers=HEADERS)
+
     if not resp:
         return []
 
+    # Save HTML for debugging
+    safe_keyword = keyword.replace(" ", "_").replace("/", "_")
+    with open(
+        f"pph_debug_{safe_keyword}.html",
+        "w",
+        encoding="utf-8"
+    ) as f:
+        f.write(resp.text)
+
     tree = HTMLParser(resp.text)
+
     results: list[ProjectListing] = []
 
-    # Each project card sits in a <li> with this class pattern
-    cards = tree.css("li.feed-item")
+    # ---------------------------------------------------------
+    # PeoplePerHour project cards
+    # ---------------------------------------------------------
 
-    if not cards:
-        # Fallback: try alternate card selector
-        cards = tree.css("[data-test='job-item']")
+    cards = tree.css("li.list__item")
+
+    print(f"    [PPH] Found {len(cards)} project cards")
 
     for card in cards:
-        # Title
-        title_node = (
-            card.css_first("h2 a") or
-            card.css_first(".feed-item-title a") or
-            card.css_first("a.job-title")
-        )
+
+        # -----------------------------------------------------
+        # TITLE + URL
+        # -----------------------------------------------------
+
+        title_node = card.css_first("h6.item__title a.item__url")
+
         if not title_node:
             continue
+
         title = title_node.text(strip=True)
-        href  = title_node.attrs.get("href", "")
-        link  = href if href.startswith("http") else f"{PPH_BASE_URL}{href}"
 
-        # Description
-        desc_node = (
-            card.css_first(".feed-item-description") or
-            card.css_first(".job-description") or
-            card.css_first("p")
+        href = title_node.attributes.get("href", "")
+
+        if not href:
+            continue
+
+        if href.startswith("http"):
+            link = href
+        else:
+            link = f"{PPH_BASE_URL}{href}"
+
+        # -----------------------------------------------------
+        # DESCRIPTION
+        # -----------------------------------------------------
+
+        desc_node = card.css_first("p.item__desc")
+
+        description = (
+            desc_node.text(strip=True)[:400]
+            if desc_node
+            else ""
         )
-        description = desc_node.text(strip=True)[:400] if desc_node else ""
 
-        # Budget — PeoplePerHour shows it as "£120" or "£50-£200"
-        budget_node = (
-            card.css_first(".budget") or
-            card.css_first("[data-test='budget']") or
-            card.css_first(".price")
+        # -----------------------------------------------------
+        # BUDGET
+        # -----------------------------------------------------
+
+        budget_node = card.css_first("div.card__price")
+
+        budget_text = (
+            budget_node.text(strip=True)
+            if budget_node
+            else ""
         )
-        budget_text = budget_node.text(strip=True) if budget_node else ""
-        budget_min, budget_max, currency = parse_budget_string(budget_text)
 
-        # Skills / tags
-        skill_nodes = card.css(".skill-tag") or card.css(".tag") or card.css(".job-tag")
-        skills = [s.text(strip=True) for s in skill_nodes if s.text(strip=True)]
+        budget_min, budget_max, currency = parse_budget_string(
+            budget_text
+        )
 
-        # Posted date
-        date_node = card.css_first("time") or card.css_first(".posted-date")
-        posted = date_node.attrs.get("datetime") or (date_node.text(strip=True) if date_node else None)
+        # -----------------------------------------------------
+        # POSTED DATE / PROPOSALS / LOCATION
+        # -----------------------------------------------------
 
-        results.append(ProjectListing(
-            title       = title,
-            platform    = "PeoplePerHour",
-            description = description,
-            budget_min  = budget_min,
-            budget_max  = budget_max,
-            currency    = currency,
-            skills      = skills,
-            bid_count   = None,
-            posted_date = posted,
-            url         = link,
-            source_type = "freelance",
-            keyword     = keyword,
-        ))
+        footer = card.css_first("div.card__footer-left")
+
+        posted = None
+        bid_count = None
+
+        if footer:
+
+            footer_spans = footer.css("span")
+
+            for span in footer_spans:
+
+                text = span.text(strip=True)
+
+                if not text:
+                    continue
+
+                # First span is normally the posted time
+                if posted is None:
+                    posted = text
+                    continue
+
+                # Look for proposal count
+                if "proposal" in text.lower():
+
+                    match = re.search(r"(\d+)", text)
+
+                    if match:
+                        bid_count = int(match.group(1))
+
+        # -----------------------------------------------------
+        # SKILLS
+        # -----------------------------------------------------
+
+        skills = []
+
+        # Try common tag/skill selectors
+        for selector in [
+            ".skill-tag",
+            ".job-tag",
+            ".tag",
+            ".etiquettes span",
+        ]:
+            for node in card.css(selector):
+                text = node.text(strip=True)
+
+                if text and text not in skills:
+                    skills.append(text)
+
+        # -----------------------------------------------------
+        # CREATE LISTING
+        # -----------------------------------------------------
+
+        results.append(
+            ProjectListing(
+                title=title,
+                platform="PeoplePerHour",
+                description=description,
+                budget_min=budget_min,
+                budget_max=budget_max,
+                currency=currency,
+                skills=skills,
+                bid_count=bid_count,
+                posted_date=posted,
+                url=link,
+                source_type="freelance",
+                keyword=keyword,
+            )
+        )
 
     return results
-
-
-def parse_budget_string(text: str) -> tuple[float | None, float | None, str | None]:
-    """
-    Parse budget strings like '£50', '$100-$200', '€500+' into
-    (min, max, currency_symbol).
-    """
-    import re
-    if not text:
-        return None, None, None
-
-    symbol_map = {"£": "GBP", "$": "USD", "€": "EUR"}
-    currency = None
-    for sym, code in symbol_map.items():
-        if sym in text:
-            currency = code
-            break
-
-    # Extract all numbers from the string
-    numbers = re.findall(r"[\d,]+", text.replace(",", ""))
-    nums = [float(n) for n in numbers if n]
-
-    if not nums:
-        return None, None, currency
-    if len(nums) == 1:
-        return nums[0], nums[0], currency
-    return min(nums), max(nums), currency
-
 
 # ─── SCRAPER: TOPTAL ──────────────────────────────────────────────────────────
 

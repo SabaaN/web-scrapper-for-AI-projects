@@ -33,7 +33,7 @@ from google import genai
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-LLM_MODEL      = os.getenv("LLM_MODEL")
+LLM_MODEL      = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 
 # Initialize Gemini client once at module level
 _client = genai.Client(api_key=GEMINI_API_KEY)
@@ -70,76 +70,67 @@ The JSON must follow this exact schema:
 }
 
 Action definitions:
-    SEARCH   — user wants to find AI projects (new search or repeat search)
-    FILTER   — user wants to narrow/sort existing results without a new search
+    SEARCH   — user wants to find AI projects by topic (machine learning, RAG, computer vision, NLP, etc.)
+               ONLY use SEARCH when the user names a specific AI/ML technology or project type.
+               The "query" field must contain a real AI/ML topic — never a question or pronoun.
+    FILTER   — user wants to narrow/sort the results already shown (by price, platform, bids, etc.)
     RECALL   — user asks about previous searches or historical data
-    CHITCHAT — greeting, thanks, question about the bot, anything off-topic
+    CHITCHAT — follow-up questions about results, greetings, thanks, general questions,
+               anything that does NOT name a specific new AI topic to search for.
+               When in doubt, use CHITCHAT.
 
-Filter fields (all optional, only include what the user specified):
+CRITICAL RULES:
+- "are these new?", "which ones are good?", "how many did you find?", "what do you think?"
+  → These are follow-up questions. Action = CHITCHAT, query = "".
+- "find me RAG projects", "search for computer vision", "get NLP projects"
+  → These name a specific AI topic. Action = SEARCH, query = "RAG" / "computer vision" / "NLP".
+- If the message is a question about results already shown, it is ALWAYS CHITCHAT.
+- If query would be empty or a pronoun ("these", "they", "those", "it"), use CHITCHAT instead.
+- Never set action = SEARCH with an empty or vague query.
+
+Filter fields (all optional):
     budget_min  : number  (minimum budget in USD)
     budget_max  : number  (maximum budget in USD)
-    bid_max     : number  (maximum number of bids, for competition filtering)
-    platform    : string  (one of: Freelancer.com, Remotive, Himalayas, RemoteOK, Arbeitnow)
-    sort_by     : string  (one of: relevance_score, budget_max, bid_count)
+    bid_max     : number  (maximum number of bids)
+    platform    : string  (Freelancer.com, Remotive, Himalayas, RemoteOK, Arbeitnow)
+    sort_by     : string  (relevance_score, budget_max, bid_count)
 
-force_fresh = true when user says things like:
-    "search again", "refresh", "get fresh results", "re-run", "update results"
+force_fresh = true only when user says: "search again", "refresh", "get fresh results", "re-run"
 
 Examples:
 
 User: "find me computer vision projects"
-{
-    "action": "SEARCH",
-    "query": "computer vision",
-    "filters": {},
-    "force_fresh": false,
-    "explanation": "User wants to search for computer vision projects."
-}
+{"action":"SEARCH","query":"computer vision","filters":{},"force_fresh":false,"explanation":"User wants to search for computer vision projects."}
+
+User: "are these all new?"
+{"action":"CHITCHAT","query":"","filters":{},"force_fresh":false,"explanation":"Follow-up question about results already shown, not a new search."}
+
+User: "which of these is the best opportunity?"
+{"action":"CHITCHAT","query":"","filters":{},"force_fresh":false,"explanation":"Follow-up question about current results."}
+
+User: "how many results did you find?"
+{"action":"CHITCHAT","query":"","filters":{},"force_fresh":false,"explanation":"Question about the search results, not a new search request."}
 
 User: "show me only the ones under $3000"
-{
-    "action": "FILTER",
-    "query": "",
-    "filters": { "budget_max": 3000 },
-    "force_fresh": false,
-    "explanation": "User wants to filter current results by budget."
-}
+{"action":"FILTER","query":"","filters":{"budget_max":3000},"force_fresh":false,"explanation":"User wants to filter current results by budget."}
 
-User: "what did we find last Tuesday?"
-{
-    "action": "RECALL",
-    "query": "",
-    "filters": {},
-    "force_fresh": false,
-    "explanation": "User is asking about historical search results."
-}
+User: "what did we find last time?"
+{"action":"RECALL","query":"","filters":{},"force_fresh":false,"explanation":"User is asking about historical search results."}
 
 User: "hi, how are you?"
-{
-    "action": "CHITCHAT",
-    "query": "",
-    "filters": {},
-    "force_fresh": false,
-    "explanation": "User is greeting the bot."
-}
+{"action":"CHITCHAT","query":"","filters":{},"force_fresh":false,"explanation":"Greeting."}
 
 User: "find RAG pipeline projects on Freelancer under $5000 with low competition"
-{
-    "action": "SEARCH",
-    "query": "RAG pipeline",
-    "filters": { "platform": "Freelancer.com", "budget_max": 5000, "bid_max": 10 },
-    "force_fresh": false,
-    "explanation": "User wants RAG pipeline projects filtered by platform, budget, and competition."
-}
+{"action":"SEARCH","query":"RAG pipeline","filters":{"platform":"Freelancer.com","budget_max":5000,"bid_max":10},"force_fresh":false,"explanation":"User wants RAG pipeline projects with specific filters."}
 
 User: "search again for machine learning projects"
-{
-    "action": "SEARCH",
-    "query": "machine learning",
-    "filters": {},
-    "force_fresh": true,
-    "explanation": "User explicitly wants a fresh search, bypassing cache."
-}
+{"action":"SEARCH","query":"machine learning","filters":{},"force_fresh":true,"explanation":"User explicitly wants a fresh search."}
+
+User: "are there any with low bids?"
+{"action":"CHITCHAT","query":"","filters":{},"force_fresh":false,"explanation":"Follow-up question about competition in current results, not a new search."}
+
+User: "what kind of projects did you scrape?"
+{"action":"CHITCHAT","query":"","filters":{},"force_fresh":false,"explanation":"Question about the current results, not a new search request."}
 """.strip()
 
 
@@ -378,4 +369,4 @@ if __name__ == "__main__":
         print(f"  Message:  \"{msg}\"")
         print(f"  → {intent}")
         print(f"     Why: {intent.explanation}")
-        print() 
+        print()

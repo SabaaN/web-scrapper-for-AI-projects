@@ -237,6 +237,21 @@ assistant_msg = {
 # ─────────────────────────────────────────────────────────────────────────────
 # SEARCH — scraper runs, LLM is NOT used for results
 # ─────────────────────────────────────────────────────────────────────────────
+# ── Guard: catch misclassified follow-up questions ───────────────────────────
+# If Gemini returns SEARCH but the query is empty, a pronoun, or a question,
+# it misread a follow-up message — reclassify as CHITCHAT.
+VAGUE_TERMS = {
+    "", "these", "they", "those", "it", "them", "this",
+    "all", "any", "some", "results", "ones", "projects",
+}
+if intent.is_search():
+    raw_q = (intent.query or "").strip().lower()
+    if raw_q in VAGUE_TERMS or raw_q.endswith("?"):
+        intent.action = "CHITCHAT"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEARCH — scraper runs, LLM is NOT used for results
+# ─────────────────────────────────────────────────────────────────────────────
 if intent.is_search():
 
     query = intent.query if intent.query else user_input
@@ -273,7 +288,7 @@ if intent.is_search():
         st.session_state.is_searching = True
 
         with st.spinner(
-            f"Please wait. "
+            f"🔍 Scraping all platforms for **\"{query}\"** — "
             f"this takes 30–60 seconds..."
         ):
             try:
@@ -356,11 +371,15 @@ elif intent.is_recall():
     assistant_msg["content"] = response
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHITCHAT — anything else (LLM responds)
+# CHITCHAT — anything else (LLM responds, with current search context)
 # ─────────────────────────────────────────────────────────────────────────────
 else:
     with st.spinner("..."):
-        response = st.session_state.manager.respond_to_chitchat(user_input)
+        response = st.session_state.manager.respond_to_chitchat(
+            user_message=user_input,
+            current_query=st.session_state.last_query,
+            current_count=st.session_state.last_count,
+        )
     assistant_msg["content"] = response
 
 # ── Append and render ─────────────────────────────────────────────────────────

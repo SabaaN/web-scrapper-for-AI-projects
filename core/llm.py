@@ -279,18 +279,34 @@ class ConversationManager:
         response = self._send(prompt, user_facing_message=user_message)
         return response
 
-    def respond_to_chitchat(self, user_message: str) -> str:
+    def respond_to_chitchat(
+        self,
+        user_message: str,
+        current_query: str = "",
+        current_count: int = 0,
+    ) -> str:
         """
-        Called after a CHITCHAT action — handles greetings, questions
-        about the bot, thanks, and anything off-topic.
+        Handles greetings, follow-up questions about results,
+        and anything that isn't a search, filter, or recall.
 
         Args:
-            user_message: The user's message
-
-        Returns:
-            Conversational assistant response
+            user_message:  The user's message
+            current_query: The last search query (so the LLM has context)
+            current_count: How many results were found (so it can answer
+                           questions like "are these all new?")
         """
-        response = self._send(user_message, user_facing_message=user_message)
+        context = ""
+        if current_query:
+            context = (
+                f"Context: The user just searched for \"{current_query}\" "
+                f"and got {current_count} results. "
+                f"They may be asking a follow-up question about those results.\n\n"
+            )
+
+        response = self._send(
+            f"{context}User: {user_message}",
+            user_facing_message=user_message,
+        )
         return response
 
     def get_history(self) -> list[dict]:

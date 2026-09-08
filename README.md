@@ -5,8 +5,6 @@ A Python web scraper for finding AI and machine learning project leads across mu
 The current active scraper in [`main.py`](./main.py) searches:
 
 - Freelancer.com
-- PeoplePerHour
-- Toptal
 - Remotive
 
 It expands broad AI-related queries into platform-specific project keywords, filters out low-relevance results, sorts the listings by relevance score, prints them to the terminal, and saves the results to JSON and Excel files.
